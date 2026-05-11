@@ -1,0 +1,16 @@
+.git
+.gitignore
+bin
+coverage.txt
+*.log
+.env
+.env.*
+.DS_Store
+.idea
+.vscode
+
+# Build/test artifacts
+**/*_test.go
+
+# Documentation
+docs/

@@ -1,0 +1,27 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+
+# Coverage
+coverage.txt
+
+# Local environment files
+.env
+.env.*
+
+# Editor/OS
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log

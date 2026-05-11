@@ -1,0 +1,104 @@
+# Local testing (Docker)
+#
+# 0) Prereqs
+#    - Docker Desktop running
+#    - `jq` installed (optional, but makes output readable)
+#
+# 1) Generate and export MCP_AUTH_SECRET (required)
+#    - Format: base64url-encoded 32-byte key (no padding)
+#
+#    export MCP_AUTH_SECRET="$(python3 - <<'PY'
+#    import os, base64
+#    print(base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip('='))
+#    PY
+#    )"
+#
+# 2) (Optional) Make responses easier to test with curl
+#    - When MCP_JSON_RESPONSE=true, `/mcp` responses are `application/json`.
+#    - Otherwise, responses default to SSE (`text/event-stream`).
+#
+#    export MCP_JSON_RESPONSE=true
+#
+# 3) Start the server
+#
+#    docker compose up --build
+#
+# 4) Verify HTTP endpoints (OAuth discovery + server card)
+#
+#    Note: this compose file maps host port 9290 -> container port 9090 to avoid
+#    conflicts when running multiple MCP servers locally.
+#
+#    curl -sS http://localhost:9290/health
+#    curl -sS http://localhost:9290/.well-known/mcp/server-card.json | jq .
+#    curl -sS http://localhost:9290/.well-known/oauth-authorization-server | jq .
+#    curl -sS http://localhost:9290/.well-known/oauth-protected-resource/mcp | jq .
+#
+#    Note:
+#    - `/mcp` is a Streamable HTTP endpoint intended for POST JSON-RPC.
+#    - GET `/mcp` (standalone SSE stream) is disabled in stateless mode and will return 405.
+#
+# 5) List MCP tools + ping (curl JSON-RPC smoke test)
+#
+#    curl -sS -u 'user:<BLACKDUCK_API_TOKEN>' \
+#      -H 'Content-Type: application/json' \
+#      -H 'Accept: application/json, text/event-stream' \
+#      -H 'Mcp-Protocol-Version: 2025-06-18' \
+#      http://localhost:9290/mcp \
+#      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq .
+#
+#    curl -sS -u 'user:<BLACKDUCK_API_TOKEN>' \
+#      -H 'Content-Type: application/json' \
+#      -H 'Accept: application/json, text/event-stream' \
+#      -H 'Mcp-Protocol-Version: 2025-06-18' \
+#      http://localhost:9290/mcp \
+#      -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"blackduck_ping","arguments":{}}}' | jq .
+#
+# 6) Verify upstream Black Duck token
+#    This will fail fast if the API token is invalid.
+#
+#    curl -sS -u 'user:<BLACKDUCK_API_TOKEN>' \
+#      -H 'Content-Type: application/json' \
+#      -H 'Accept: application/json, text/event-stream' \
+#      -H 'Mcp-Protocol-Version: 2025-06-18' \
+#      http://localhost:9290/mcp \
+#      -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"blackduck_current_user","arguments":{}}}' | jq .
+#
+# 7) End-to-end OAuth flow (recommended for real MCP clients)
+#    - Configure your MCP client with Streamable HTTP URL: http://localhost:9290/mcp
+#    - The client should discover metadata under `/.well-known/*` and open:
+#      `/authorize` → `/blackduck/login`.
+services:
+  blackduck-mcp:
+    image: vionix.docker.artifactory.viasat.com/agentic/customer-service/tools/blackduck-mcp-server
+    build:
+      context: .
+      target: blackduck-mcp
+      args:
+        BINARY_NAME: blackduck-mcp
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+        BUILD_IMAGE_TAG: ${BUILD_IMAGE_TAG:-golang:1.24-alpine}
+        RUNTIME_IMAGE_TAG: ${RUNTIME_IMAGE_TAG:-alpine:3.22.1}
+    container_name: blackduck-mcp
+    ports:
+      - "9290:9090"
+    restart: unless-stopped
+    environment:
+      PORT: "9090"
+      MCP_SERVER_URL: "http://localhost:9290"
+      MCP_JSON_RESPONSE: "${MCP_JSON_RESPONSE:-false}"
+      BLACKDUCK_BASE_URL: ${BLACKDUCK_BASE_URL:-https://blackduck.infosec.viasat.io}
+
+      # Optional: bootstrap + trust the Viasat private CA bundle inside the container.
+      # This is typically required for internal HTTPS services like blackduck.infosec.viasat.io.
+      VIASAT_IO_CACERT_FILE: ${VIASAT_IO_CACERT_FILE:-/viasat/certs/viasat.io.pem}
+      VIASAT_IO_CACERT_URL: ${VIASAT_IO_CACERT_URL:-https://cacerts.viasat.io/all-certs.crt}
+
+      # Optional: override or add extra CA roots specifically for Black Duck.
+      BLACKDUCK_CA_CERT_FILE: ${BLACKDUCK_CA_CERT_FILE:-}
+      BLACKDUCK_CA_CERT_BASE64: ${BLACKDUCK_CA_CERT_BASE64:-}
+
+      # Optional/unsafe: skip upstream TLS verification (last resort).
+      BLACKDUCK_TLS_INSECURE_SKIP_VERIFY: ${BLACKDUCK_TLS_INSECURE_SKIP_VERIFY:-false}
+
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MCP_AUTH_SECRET: ${MCP_AUTH_SECRET}
