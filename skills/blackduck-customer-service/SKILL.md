@@ -15,6 +15,20 @@ allowed-tools:
 
 # Black Duck Customer Service (blackduck-mcp)
 
+## Connectivity preflight (VPN / viasat.io)
+Black Duck's upstream APIs (and this MCP server) live on `viasat.io` infrastructure. **Before** invoking any tool below, confirm the network path is available.
+
+Symptoms of missing connectivity (treat as VPN-not-connected first, not as a server bug):
+- `request canceled (Client.Timeout exceeded while awaiting headers)`
+- `TLS handshake timeout`
+- `dial tcp: lookup ... no such host`
+- `context deadline exceeded`
+
+Recommended preflight:
+1. Issue a cheap read (e.g. `blackduck_users_list` with `q: "userName:<known-username>"`, `limit: 1`).
+2. If it fails with a timeout/TLS error, stop and ask the operator to verify VPN before retrying any other tool.
+3. Retry **once** after the operator confirms the VPN is connected; do not loop.
+
 ## Preferred input (Viasat identity)
 When asked about a user, prefer accepting a single identifier from Viasat’s network:
 - `<LDAP_USERNAME>` (example: `mdesales`)

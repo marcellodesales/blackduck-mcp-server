@@ -82,6 +82,12 @@ services:
     ports:
       - "9290:9090"
     restart: unless-stopped
+    volumes:
+      # Persist the Viasat private CA bundle on the host so that container
+      # restarts do not require connectivity to cacerts.viasat.io. The server
+      # uses `EnsurePrivateCARoot` at startup which reuses this file when
+      # present and only fetches when it is missing.
+      - ./data/certs:/viasat/certs
     environment:
       PORT: "9090"
       MCP_SERVER_URL: "http://localhost:9290"

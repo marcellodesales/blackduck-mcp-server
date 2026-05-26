@@ -51,19 +51,34 @@ func (a *App) Run(ctx context.Context) error {
 }
 
 func (a *App) handlePrerequirements(ctx context.Context) error {
-	if err := a.fetchPrivateCARoot(ctx); err != nil {
+	if err := a.ensurePrivateCARoot(ctx); err != nil {
 		return fmt.Errorf("handle startup prerequisites: %w", err)
 	}
 	return nil
 }
 
-func (a *App) fetchPrivateCARoot(ctx context.Context) error {
+// ensurePrivateCARoot reuses the Viasat private CA bundle already present on
+// disk and only fetches it from ViasatIOCACertURL when it is missing. This
+// keeps container restarts cheap and avoids hard-coupling startup to network
+// reachability of `cacerts.viasat.io` when the bundle has already been
+// primed (e.g. via the `./data/certs:/viasat/certs` docker-compose volume).
+func (a *App) ensurePrivateCARoot(ctx context.Context) error {
 	if a.ViasatCABootstrapper == nil {
 		return nil
 	}
 
-	if _, err := a.ViasatCABootstrapper.FetchPrivateCARoot(ctx); err != nil {
-		return fmt.Errorf("fetch private ca root: %w", err)
+	status, err := a.ViasatCABootstrapper.EnsurePrivateCARoot(ctx)
+	if err != nil {
+		return fmt.Errorf("ensure private ca root: %w", err)
+	}
+	if a.Logger != nil && status.Enabled && status.Exists {
+		a.Logger.Info(
+			"private ca root ready",
+			"path", status.ViasatIOCACertFile,
+			"size_bytes", status.SizeBytes,
+			"updated_at", status.UpdatedAt,
+			"refetched", status.LastFetchedAt != "",
+		)
 	}
 	return nil
 }

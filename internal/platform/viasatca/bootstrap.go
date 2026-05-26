@@ -42,8 +42,22 @@ func NewBootstrapper(cfg config.Config, logger *slog.Logger) *Bootstrapper {
 	}
 }
 
+// FetchPrivateCARoot forces a fresh download of the Viasat private CA bundle
+// from ViasatIOCACertURL, replacing any cached file on disk. Prefer
+// EnsurePrivateCARoot for normal startup.
 func (b *Bootstrapper) FetchPrivateCARoot(ctx context.Context) (Status, error) {
 	return b.Ensure(ctx, true)
+}
+
+// EnsurePrivateCARoot guarantees that the Viasat private CA bundle is
+// available on disk at ViasatIOCACertFile. If the file already exists, it is
+// reused as-is (no network call). Only when the file is missing does this
+// fetch ViasatIOCACertURL. This is the preferred startup behaviour so that:
+//   - container restarts do not require connectivity to cacerts.viasat.io;
+//   - operators can prime the bundle by mounting a host directory at
+//     /viasat/certs (e.g. via docker-compose `volumes:`).
+func (b *Bootstrapper) EnsurePrivateCARoot(ctx context.Context) (Status, error) {
+	return b.Ensure(ctx, false)
 }
 
 func (b *Bootstrapper) Ensure(ctx context.Context, force bool) (Status, error) {

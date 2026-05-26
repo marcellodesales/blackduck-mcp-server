@@ -1,0 +1,5 @@
+# Cached Viasat private CA bundle, mounted into the container at
+# /viasat/certs. Persisted on the host so container restarts do not need
+# connectivity to cacerts.viasat.io. Never commit the bundle itself.
+*.pem
+*.crt
