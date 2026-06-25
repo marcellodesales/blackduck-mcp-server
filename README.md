@@ -20,6 +20,7 @@ Read endpoints are exposed as MCP tools for:
 
 A limited set of write endpoints are also exposed:
 - Users: update basic properties (including `active`) via `PUT /api/users/{userId}`
+  - Note: Black Duck Hub does not support permanent user deletion; to "delete" a user, set `active=false` (deactivate). Inactive users do not count against licensing limits and cannot log in.
 
 ## Authentication
 

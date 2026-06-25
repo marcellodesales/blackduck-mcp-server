@@ -163,6 +163,7 @@ OAuth is recommended for real MCP clients.
   - Used by: `blackduck_users_update`
   - Notes:
     - Black Duck typically expects a full user payload with fields like `userName`, `externalUserName` (for EXTERNAL), `firstName`, `lastName`, `email`, `type`, `active`.
+    - Black Duck Hub does not support permanent user deletion; offboarding is handled by setting `active: false`.
 - `GET /api/dormant-users` (Accept: user-4)
   - Used by: `blackduck_dormant_users_list`
   - Notes:

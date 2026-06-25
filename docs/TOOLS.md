@@ -4,7 +4,8 @@ This document describes what the Black Duck MCP server does and how to use it fr
 
 ## What this server does
 - Exposes Black Duck read operations as MCP tools.
-- Exposes a limited set of write operations as MCP tools (currently: update user properties via `PUT /api/users/{userId}`).
+- Exposes a limited set of write operations as MCP tools (currently: update users via `PUT /api/users/{userId}`).
+  - Note: Black Duck does not support permanent user deletion; to "delete" a user, set `active=false` (deactivate). Inactive users do not count against licensing limits and cannot log in.
 - Provides an OAuth2-compatible authentication flow for MCP clients.
 - Remains stateless: encrypted bearer tokens carry the upstream API token (no DB).
 
@@ -183,6 +184,17 @@ curl -sS -u 'user:<BLACKDUCK_API_TOKEN>' \
 
 Tip: this tool fetches the current user and sends the full required payload, applying only the requested `updates` fields.
 
+### Deactivate a user by ID (set active=false)
+```bash
+# Deactivation is the supported "delete user" behavior in Black Duck.
+# Inactive users do not count against licensing limits and cannot log in.
+curl -sS -u 'user:<BLACKDUCK_API_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Mcp-Protocol-Version: 2025-06-18' \
+  http://localhost:9290/mcp \
+  -d '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"blackduck_users_update","arguments":{"user_id":"<USER_ID>","updates":{"active":false}}}}' | jq .
+```
 ### List dormant users (example)
 ```bash
 # List users considered dormant (for example: no login in the last 90 days).
@@ -192,5 +204,5 @@ curl -sS -u 'user:<BLACKDUCK_API_TOKEN>' \
   -H 'Accept: application/json, text/event-stream' \
   -H 'Mcp-Protocol-Version: 2025-06-18' \
   http://localhost:9290/mcp \
-  -d '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"blackduck_dormant_users_list","arguments":{"since_days":90,"limit":999}}}' | jq .
+  -d '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"blackduck_dormant_users_list","arguments":{"since_days":90,"limit":999}}}' | jq .
 ```

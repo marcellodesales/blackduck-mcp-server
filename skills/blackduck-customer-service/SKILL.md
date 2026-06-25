@@ -1,10 +1,10 @@
 ---
 name: blackduck-customer-service
-description: "Use when supporting Cybersecurity customer-service workflows with Black Duck via the blackduck-viasat MCP server. For user re-activation, require a Viasat email (@viasat.com) or LDAP username, confirm the identity via the viasat-vice MCP server, look up the account starting from /api/dormant-users (then fall back to /api/users if needed), and if active=false update the user via HTTP PUT to set active=true using blackduck_users_update. Triggers on: Black Duck, blackduck, dormant users, activate user, reactivate user, enable user, user groups, project groups."
+description: "Use when supporting Cybersecurity customer-service workflows with Black Duck via the blackduck-viasat MCP server. For user re-activation, require a Viasat email (@viasat.com) or LDAP username, confirm the identity via the viasat-vice MCP server, look up the account starting from /api/dormant-users (then fall back to /api/users if needed), and if active=false update the user via HTTP PUT to set active=true using blackduck_users_update. For offboarding cleanup, if a user is dormant for >1 year and is NOT found in the VICE directory, suggest deactivation (active=false); after the operator confirms via a manual Slack search, deactivate the Black Duck user via blackduck_users_update. Triggers on: Black Duck, blackduck, dormant users, activate user, reactivate user, enable user, deactivate user, disable user, delete user, remove user, offboarding, user groups, project groups."
 license: "Viasat internal"
-compatibility: "Requires network access to the Viasat Black Duck instance and the centrally hosted viasat-vice MCP server. Reactivation requires a Black Duck API token with write access and the blackduck_users_update tool (PUT /api/users/{userId})."
+compatibility: "Requires network access to the Viasat Black Duck instance and the centrally hosted viasat-vice MCP server. Reactivation and deactivation require a Black Duck API token with write access and the blackduck_users_update tool (PUT /api/users/{userId})."
 metadata:
-  version: "0.2.3"
+  version: "0.2.5"
 allowed-tools:
   - "Read"
   - "Write"
@@ -30,20 +30,24 @@ Recommended preflight:
 3. Retry **once** after the operator confirms the VPN is connected; do not loop.
 
 ## Required input (Viasat identity)
-For any user-related request, require **one** of:
+For enable/reactivation and other standard support requests, require **one** of:
 - `<EMAIL>` ending in `@viasat.com` (case-insensitive)
 - `<LDAP_USERNAME>` (example: `mdesales`)
 
-Do not proceed to Black Duck until the identity is confirmed in VICE.
+For offboarding cleanup (deactivating long-dormant accounts), you may start from the Black Duck record (dormant list or a `user_id`) and then check VICE using the identity fields on the Black Duck user.
 
-## Step 1 — Confirm the identity in VICE (required)
+For enable/reactivation: do not proceed to Black Duck until the identity is confirmed in VICE.
+
+## Step 1 — Confirm the identity in VICE (required for enable/reactivation)
 Use the `viasat-vice` MCP server as the source of truth:
 - If the operator provides `<EMAIL>`: call `vice_get_user_by_email` with `email: "<EMAIL>"`
 - If the operator provides `<LDAP_USERNAME>`: call `vice_get_user` with `username: "<LDAP_USERNAME>"`
 
-If no user is found, stop and ask the operator to double-check the email/username.
+If no user is found:
+- For enable/reactivation: stop and ask the operator to double-check the email/username.
+- For offboarding cleanup: continue — VICE not-found is part of the removal decision (see "Offboarding cleanup" below).
 
-Capture the canonical values from the VICE response:
+If a VICE user is found, capture the canonical values:
 - `ldap_username` (VICE `username`)
 - `email` (VICE `email`, normalize to lowercase)
 
@@ -55,8 +59,8 @@ Expected tool call:
 - `blackduck_dormant_users_list` with `since_days: 90`, `limit: 999`
 
 Selection rules (in priority order):
-1) If the dormant record includes `email`, match it (case-insensitive) against the VICE email.
-2) Match `externalUserName` / `userName` / `username` (case-insensitive) against the VICE `ldap_username`.
+1) If the dormant record includes `email`, match it (case-insensitive) against the known email (VICE if available; otherwise the operator-provided `<EMAIL>`).
+2) Match `externalUserName` / `userName` / `username` (case-insensitive) against the known username (VICE `ldap_username` if available; otherwise the operator-provided `<LDAP_USERNAME>`).
 
 Typical dormant-user fields (may vary by Black Duck version):
 - `externalUserName`, `userName` / `username`, `firstName`, `lastName`, `email`, `type`, `active`, `href` / `_meta.href`, `lastLogin`
@@ -78,8 +82,8 @@ Notes:
 - The current `blackduck_users_list` MCP tool does not reliably apply `q` / `filter` server-side — do not rely on them.
 
 Selection rules (in priority order):
-1) Match the `email` field (case-insensitive) against the VICE email.
-2) If no email match, match `userName` or `externalUserName` (case-insensitive) against the VICE `ldap_username`.
+1) Match the `email` field (case-insensitive) against the known email (VICE if available; otherwise the operator-provided `<EMAIL>`).
+2) If no email match, match `userName` or `externalUserName` (case-insensitive) against the known username (VICE `ldap_username` if available; otherwise the operator-provided `<LDAP_USERNAME>`).
 
 If there are 0 matches or multiple matches, stop and ask the operator which record to use (show `userName`, `externalUserName`, `email`, `active` for each candidate).
 
@@ -111,8 +115,10 @@ Expected tool flow:
 
 ## Dormant status
 "Dormant" is NOT the same as `active=false`.
-- `active` typically means the account is enabled/disabled.
-- "dormant" typically means *inactive usage / last login* within a policy window.
+- `active` means the account is enabled/disabled.
+- "dormant" means *inactive usage / last login* within a policy window.
+- A dormant user can still log in if `active: true`.
+- Inactive (`active: false`) users do not count against licensing limits and cannot log in.
 
 Prompt:
 - "Check if Black Duck user '<EMAIL>' (or '<LDAP_USERNAME>') is dormant. If dormant, show the dormant-user record." 
@@ -132,6 +138,48 @@ Notes:
 - If the user is not present, they may not be dormant for the chosen `since_days` window.
 - Response shapes can vary by Black Duck version; treat the record as authoritative and match on whatever identity fields are present.
 
+## Offboarding cleanup — deactivating long-dormant users not found in VICE
+Sometimes dormant Black Duck accounts belong to employees/contractors who have left the company. If the account has been dormant for **more than 1 year** and the user is **not found in VICE**, suggest disabling the account (set `active=false`).
+
+Important:
+- Black Duck does not support permanent user deletion; "delete user" should be interpreted as **deactivate user**.
+- Inactive (`active=false`) users do not count against licensing limits and cannot log in to the Black Duck UI.
+
+Scope guardrails:
+- Do NOT deactivate users just because VICE is unreachable (network/auth errors) — only proceed when VICE tools are functioning.
+- Do NOT deactivate system/service users (examples: `anonymous`, `default-authenticated-user`, `sysadmin`).
+- If the dormant record lacks `lastLogin`, treat the dormancy duration as **unknown** and do not recommend deactivation solely from that record.
+
+### Step A — Find candidates (> 1 year)
+1) Use `blackduck_dormant_users_list` with:
+   - `since_days: 365`
+   - `limit: 999`
+   - `sort: "lastLogin asc"` (oldest first; ignore records missing `lastLogin`)
+2) Select the specific user record the operator is asking about (match on email/username as in Step 2A).
+3) Derive `user_id` from `href` / `_meta.href` and fetch `blackduck_users_get` for that ID.
+
+### Step B — Verify the user is NOT in VICE
+Attempt all applicable VICE lookups:
+- If you have an email: `vice_get_user_by_email` using the Black Duck email.
+- If you have a username: `vice_get_user` using the Black Duck `userName` / `externalUserName`.
+
+If any VICE lookup returns a user, stop — do **not** suggest deactivation.
+
+If no VICE record is found:
+- Suggest deactivation due to the possibility the user has left the company.
+
+### Step C — Manual confirmation via Slack (required)
+VICE not-found is not sufficient by itself.
+Ask the operator to manually search for the user in Slack (not available via MCP) and confirm the person/account is deactivated/offboarded.
+
+### Step D — Deactivate the Black Duck user (set active=false)
+Only after explicit operator confirmation:
+1) Re-state what will be changed (include `user_id`, `userName`, `externalUserName`, `email`, `lastLogin`, current `active`).
+2) If the user is already `active: false`, stop (nothing to do).
+3) Otherwise, call `blackduck_users_update` with:
+   - `user_id: <USER_ID>`
+   - `updates: {"active": false}`
+4) Re-fetch `blackduck_users_get` to confirm `active: false`.
 ## Reactivating a user (inactive → active)
 If a user account is disabled, it will show as `active: false` in the user record.
 
