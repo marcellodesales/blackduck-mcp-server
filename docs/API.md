@@ -69,7 +69,9 @@ Stateless by design:
 - no DB or server-side session store is required
 
 Token encryption key:
-- `MCP_AUTH_SECRET` (required): base64url-encoded 32-byte key (no padding)
+- `MCP_AUTH_SECRET` (optional): base64url-encoded 32-byte key (no padding)
+  - If unset, the server auto-generates an ephemeral secret at startup (OAuth sessions/tokens become invalid after restart).
+  - For deployments, set a stable value so sessions can survive restarts.
 
 ### Direct Basic auth to `/mcp` (secondary)
 For quick local smoke tests, `/mcp` also accepts upstream API tokens directly via:
@@ -157,6 +159,16 @@ OAuth is recommended for real MCP clients.
   - Used by: `blackduck_users_list`
 - `GET /api/users/{userId}` (Accept: user-4)
   - Used by: `blackduck_users_get`
+- `PUT /api/users/{userId}` (Accept: user-4; Content-Type: user-4)
+  - Used by: `blackduck_users_update`
+  - Notes:
+    - Black Duck typically expects a full user payload with fields like `userName`, `externalUserName` (for EXTERNAL), `firstName`, `lastName`, `email`, `type`, `active`.
+- `GET /api/dormant-users` (Accept: user-4)
+  - Used by: `blackduck_dormant_users_list`
+  - Notes:
+    - Common query params include `sinceDays` (for example: users with no login in the last N days).
+    - Responses commonly include `lastLogin` plus identity fields (for example: `externalUserName`, `userName` and/or `email`) and an `_meta.href` pointing at a user URL (often ending with `/last-login`).
+    - Treat the response shape as authoritative; fields can vary by Black Duck version/config.
 - `GET /api/users/{userId}/usergroups` (Accept: user-4)
   - Used by: `blackduck_user_usergroups_list`
 - `GET /api/usergroups` (Accept: user-4)

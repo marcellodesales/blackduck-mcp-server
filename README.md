@@ -7,7 +7,7 @@ This server is **stateless**:
 - No DB or server-side session store is required.
 
 ## What it supports
-"Basic" read endpoints are exposed as MCP tools for:
+Read endpoints are exposed as MCP tools for:
 - Projects + project versions
 - Project groups
 - Bill of Materials (BOM): status, components, vulnerable BOM components
@@ -17,6 +17,9 @@ This server is **stateless**:
 - Scans (scan summaries)
 - Users + user groups
 - Policy rules for BOM component versions
+
+A limited set of write endpoints are also exposed:
+- Users: update basic properties (including `active`) via `PUT /api/users/{userId}`
 
 ## Authentication
 
@@ -56,14 +59,17 @@ Upstream TLS / CA handling (often required for internal Viasat HTTPS services):
 - `BLACKDUCK_TLS_INSECURE_SKIP_VERIFY` (optional/unsafe): when true, disables upstream TLS verification
 
 Auth and server behavior:
-- `MCP_AUTH_SECRET` (**required**): base64url-encoded 32-byte key (no padding)
+- `MCP_AUTH_SECRET` (optional): base64url-encoded 32-byte key (no padding)
+  - If unset, the server auto-generates an ephemeral secret at startup (OAuth sessions/tokens become invalid after restart).
+  - For deployments, set a stable value so sessions can survive restarts.
 - `MCP_JSON_RESPONSE` (default `false`): when true, `/mcp` responses are JSON (easier for curl)
 
 ## Local run (Docker)
 See `docker-compose.yaml` for step-by-step local smoke tests.
 
-At minimum:
-- export `MCP_AUTH_SECRET`
+Optional:
+- export `MCP_AUTH_SECRET` if you want OAuth sessions/tokens to remain valid across restarts
+  - If unset, the server auto-generates an ephemeral secret at startup.
 
 Then:
 - `docker compose up --build`

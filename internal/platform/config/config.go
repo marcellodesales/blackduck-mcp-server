@@ -1,8 +1,10 @@
 package config
 
 import (
-	"errors"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strconv"
@@ -58,7 +60,7 @@ func Load() (Config, error) {
 		BlackduckCACertFile:            strings.TrimSpace(os.Getenv("BLACKDUCK_CA_CERT_FILE")),
 		BlackduckCACertBase64:          strings.TrimSpace(os.Getenv("BLACKDUCK_CA_CERT_BASE64")),
 		BlackduckTLSInsecureSkipVerify: false,
-		AuthSecret:                     os.Getenv("MCP_AUTH_SECRET"),
+		AuthSecret:                     strings.TrimSpace(os.Getenv("MCP_AUTH_SECRET")),
 		AuthCodeTTL:                    5 * time.Minute,
 		AccessTokenTTL:                 12 * time.Hour,
 		ApprovalTTL:                    5 * time.Minute,
@@ -106,8 +108,17 @@ func Load() (Config, error) {
 		cfg.JSONResponse = b
 	}
 
+	// MCP_AUTH_SECRET is optional. When unset, generate an ephemeral secret so the
+	// server can run locally without extra setup.
+	//
+	// Note: Any OAuth/MCP access tokens issued with an auto-generated secret will
+	// become invalid after the server restarts.
 	if cfg.AuthSecret == "" {
-		return Config{}, errors.New("MCP_AUTH_SECRET is required")
+		key := make([]byte, 32)
+		if _, err := io.ReadFull(rand.Reader, key); err != nil {
+			return Config{}, fmt.Errorf("generate MCP_AUTH_SECRET: %w", err)
+		}
+		cfg.AuthSecret = base64.RawURLEncoding.EncodeToString(key)
 	}
 	if err := securetoken.ValidateKey(cfg.AuthSecret); err != nil {
 		return Config{}, err

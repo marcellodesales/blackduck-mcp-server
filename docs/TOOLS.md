@@ -4,6 +4,7 @@ This document describes what the Black Duck MCP server does and how to use it fr
 
 ## What this server does
 - Exposes Black Duck read operations as MCP tools.
+- Exposes a limited set of write operations as MCP tools (currently: update user properties via `PUT /api/users/{userId}`).
 - Provides an OAuth2-compatible authentication flow for MCP clients.
 - Remains stateless: encrypted bearer tokens carry the upstream API token (no DB).
 
@@ -75,6 +76,8 @@ OAuth is recommended for real MCP clients.
 ### Users + user groups
 - `blackduck_users_list`
 - `blackduck_users_get`
+- `blackduck_dormant_users_list`
+- `blackduck_users_update`
 - `blackduck_user_usergroups_list`
 - `blackduck_usergroups_list`
 - `blackduck_usergroups_get`
@@ -87,8 +90,10 @@ OAuth is recommended for real MCP clients.
 ### Run with Docker
 See `docker-compose.yaml` for a step-by-step local test flow.
 
-At minimum, you must set:
-- `MCP_AUTH_SECRET` (base64url 32-byte key)
+Optional:
+- `MCP_AUTH_SECRET` (base64url-encoded 32-byte key, no padding)
+  - Recommended if you want OAuth sessions/tokens to remain valid across restarts.
+  - If unset, the server auto-generates an ephemeral secret at startup.
 
 Then:
 - `docker compose up --build`
@@ -163,4 +168,29 @@ curl -sS -u 'user:<BLACKDUCK_API_TOKEN>' \
   -H 'Mcp-Protocol-Version: 2025-06-18' \
   http://localhost:9290/mcp \
   -d '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"blackduck_project_versions_list","arguments":{"project_id":"<PROJECT_ID>","limit":10}}}' | jq .
+```
+
+### Re-activate (enable) a user by ID (example)
+```bash
+# First, obtain a user_id (for example via blackduck_users_list or blackduck_users_get), then:
+curl -sS -u 'user:<BLACKDUCK_API_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Mcp-Protocol-Version: 2025-06-18' \
+  http://localhost:9290/mcp \
+  -d '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"blackduck_users_update","arguments":{"user_id":"<USER_ID>","updates":{"active":true}}}}' | jq .
+```
+
+Tip: this tool fetches the current user and sends the full required payload, applying only the requested `updates` fields.
+
+### List dormant users (example)
+```bash
+# List users considered dormant (for example: no login in the last 90 days).
+# You can then match locally on userName/externalUserName/email depending on the response shape.
+curl -sS -u 'user:<BLACKDUCK_API_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Mcp-Protocol-Version: 2025-06-18' \
+  http://localhost:9290/mcp \
+  -d '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"blackduck_dormant_users_list","arguments":{"since_days":90,"limit":999}}}' | jq .
 ```

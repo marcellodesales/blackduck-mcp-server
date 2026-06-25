@@ -4,8 +4,10 @@
 #    - Docker Desktop running
 #    - `jq` installed (optional, but makes output readable)
 #
-# 1) Generate and export MCP_AUTH_SECRET (required)
+# 1) (Optional) Generate and export MCP_AUTH_SECRET
 #    - Format: base64url-encoded 32-byte key (no padding)
+#    - Recommended if you want OAuth sessions/tokens to remain valid across restarts.
+#    - If unset, the server auto-generates an ephemeral secret at startup.
 #
 #    export MCP_AUTH_SECRET="$(python3 - <<'PY'
 #    import os, base64
@@ -107,4 +109,4 @@ services:
       BLACKDUCK_TLS_INSECURE_SKIP_VERIFY: ${BLACKDUCK_TLS_INSECURE_SKIP_VERIFY:-false}
 
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      MCP_AUTH_SECRET: ${MCP_AUTH_SECRET}
+      MCP_AUTH_SECRET: ${MCP_AUTH_SECRET:-}
