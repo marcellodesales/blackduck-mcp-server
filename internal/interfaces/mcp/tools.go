@@ -852,8 +852,22 @@ type UsersListInput struct {
 	Filter *string `json:"filter,omitempty"`
 }
 
+type DormantUsersListInput struct {
+	SinceDays *int32  `json:"since_days,omitempty" jsonschema:"Number of days since last login to consider a user dormant (mapped to sinceDays query param)."`
+	Offset    *int32  `json:"offset,omitempty" jsonschema:"Pagination offset."`
+	Limit     *int32  `json:"limit,omitempty" jsonschema:"Pagination limit."`
+	Sort      *string `json:"sort,omitempty" jsonschema:"Sort specification."`
+	Q         *string `json:"q,omitempty" jsonschema:"Search query (if supported by the endpoint)."`
+	Filter    *string `json:"filter,omitempty" jsonschema:"Filter expression (if supported by the endpoint)."`
+}
+
 type UserGetInput struct {
 	UserID string `json:"user_id"`
+}
+
+type UserUpdateInput struct {
+	UserID  string         `json:"user_id" jsonschema:"Black Duck user identifier."`
+	Updates map[string]any `json:"updates" jsonschema:"Fields to update. Supported keys: active, userName, externalUserName, firstName, lastName, email, type."`
 }
 
 type UserUserGroupsListInput struct {
@@ -906,6 +920,59 @@ func registerUserTools(server *mcp.Server, cfg config.Config, client *blackduck.
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "blackduck_dormant_users_list",
+		Description: "List dormant users (GET /api/dormant-users).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in DormantUsersListInput) (*mcp.CallToolResult, RawResponseOutput, error) {
+		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel()
+
+		q := url.Values{}
+		setOptInt32(q, "sinceDays", in.SinceDays)
+		setOptInt32(q, "offset", in.Offset)
+		setOptInt32(q, "limit", in.Limit)
+		setOptString(q, "sort", in.Sort)
+		setOptString(q, "q", in.Q)
+		setOptString(q, "filter", in.Filter)
+
+		resp, err := client.GetJSON(ctx, creds.apiToken, "/api/dormant-users", blackduck.MediaTypeUserV4, q)
+		if err != nil {
+			return nil, RawResponseOutput{}, blackduckToolError(err)
+		}
+		return nil, RawResponseOutput{BaseURL: cfg.BlackduckBaseURL, Response: resp}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "blackduck_users_update",
+		Description: "Update a user by ID (PUT /api/users/{userId}). This endpoint requires a full user payload; this tool fetches the current user and applies the requested field updates.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in UserUpdateInput) (*mcp.CallToolResult, RawResponseOutput, error) {
+		if in.UserID == "" {
+			return nil, RawResponseOutput{}, fmt.Errorf("user_id is required")
+		}
+		if len(in.Updates) == 0 {
+			return nil, RawResponseOutput{}, fmt.Errorf("updates is required")
+		}
+		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel()
+
+		path := "/api/users/" + url.PathEscape(in.UserID)
+		current, err := client.GetJSON(ctx, creds.apiToken, path, blackduck.MediaTypeUserV4, nil)
+		if err != nil {
+			return nil, RawResponseOutput{}, blackduckToolError(err)
+		}
+
+		body, err := buildUserUpdateBody(current, in.Updates)
+		if err != nil {
+			return nil, RawResponseOutput{}, err
+		}
+
+		resp, err := client.PutJSON(ctx, creds.apiToken, path, blackduck.MediaTypeUserV4, blackduck.MediaTypeUserV4, body)
+		if err != nil {
+			return nil, RawResponseOutput{}, blackduckToolError(err)
+		}
+		return nil, RawResponseOutput{BaseURL: cfg.BlackduckBaseURL, Response: resp}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "blackduck_user_usergroups_list",
 		Description: "List user groups for a user (GET /api/users/{userId}/usergroups).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in UserUserGroupsListInput) (*mcp.CallToolResult, RawResponseOutput, error) {
@@ -929,6 +996,116 @@ func registerUserTools(server *mcp.Server, cfg config.Config, client *blackduck.
 		}
 		return nil, RawResponseOutput{BaseURL: cfg.BlackduckBaseURL, Response: resp}, nil
 	})
+}
+
+func buildUserUpdateBody(current map[string]any, updates map[string]any) (map[string]any, error) {
+	allowed := map[string]struct{}{
+		"active":           {},
+		"userName":         {},
+		"externalUserName": {},
+		"firstName":        {},
+		"lastName":         {},
+		"email":            {},
+		"type":             {},
+	}
+	for k := range updates {
+		if _, ok := allowed[k]; !ok {
+			return nil, fmt.Errorf("unsupported update field %q (allowed: active, userName, externalUserName, firstName, lastName, email, type)", k)
+		}
+	}
+
+	userName, ok := current["userName"].(string)
+	if !ok || userName == "" {
+		return nil, fmt.Errorf("unexpected user payload: missing userName")
+	}
+	firstName, ok := current["firstName"].(string)
+	if !ok || firstName == "" {
+		return nil, fmt.Errorf("unexpected user payload: missing firstName")
+	}
+	lastName, ok := current["lastName"].(string)
+	if !ok || lastName == "" {
+		return nil, fmt.Errorf("unexpected user payload: missing lastName")
+	}
+	email, ok := current["email"].(string)
+	if !ok || email == "" {
+		return nil, fmt.Errorf("unexpected user payload: missing email")
+	}
+	typeStr, ok := current["type"].(string)
+	if !ok || typeStr == "" {
+		return nil, fmt.Errorf("unexpected user payload: missing type")
+	}
+	active, ok := current["active"].(bool)
+	if !ok {
+		return nil, fmt.Errorf("unexpected user payload: missing active")
+	}
+	externalUserName, _ := current["externalUserName"].(string)
+
+	if v, ok := updates["userName"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("updates.userName must be a string")
+		}
+		userName = s
+	}
+	if v, ok := updates["externalUserName"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("updates.externalUserName must be a string")
+		}
+		externalUserName = s
+	}
+	if v, ok := updates["firstName"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("updates.firstName must be a string")
+		}
+		firstName = s
+	}
+	if v, ok := updates["lastName"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("updates.lastName must be a string")
+		}
+		lastName = s
+	}
+	if v, ok := updates["email"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("updates.email must be a string")
+		}
+		email = s
+	}
+	if v, ok := updates["type"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("updates.type must be a string")
+		}
+		typeStr = s
+	}
+	if v, ok := updates["active"]; ok {
+		b, ok := v.(bool)
+		if !ok {
+			return nil, fmt.Errorf("updates.active must be a boolean")
+		}
+		active = b
+	}
+
+	if _, ok := updates["externalUserName"]; !ok && externalUserName == "" {
+		externalUserName = userName
+	}
+	if typeStr == "EXTERNAL" && externalUserName == "" {
+		return nil, fmt.Errorf("externalUserName is required for EXTERNAL users")
+	}
+
+	return map[string]any{
+		"userName":         userName,
+		"externalUserName": externalUserName,
+		"firstName":        firstName,
+		"lastName":         lastName,
+		"email":            email,
+		"type":             typeStr,
+		"active":           active,
+	}, nil
 }
 
 type UserGroupsListInput struct {
