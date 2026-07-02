@@ -26,6 +26,8 @@ type Handler interface {
 
 type credsKey struct{}
 
+type accessModeKey struct{}
+
 type upstreamCreds struct {
 	principal string
 	apiToken  string
@@ -44,6 +46,32 @@ func credsFromContext(ctx context.Context) (upstreamCreds, bool) {
 	return c, ok
 }
 
+func withAccessMode(ctx context.Context, m mcpauth.AccessMode) context.Context {
+	return context.WithValue(ctx, accessModeKey{}, m)
+}
+
+func accessModeFromContext(ctx context.Context) mcpauth.AccessMode {
+	v := ctx.Value(accessModeKey{})
+	if v == nil {
+		return mcpauth.AccessModeReadOnly
+	}
+	m, ok := v.(mcpauth.AccessMode)
+	if !ok || strings.TrimSpace(string(m)) == "" {
+		return mcpauth.AccessModeReadOnly
+	}
+	if m != mcpauth.AccessModeReadWrite {
+		return mcpauth.AccessModeReadOnly
+	}
+	return m
+}
+
+func requireWriteAccess(ctx context.Context) error {
+	if accessModeFromContext(ctx) != mcpauth.AccessModeReadWrite {
+		return fmt.Errorf("write operations are disabled for this access token; re-authorize with READ-WRITE")
+	}
+	return nil
+}
+
 func NewHandler(cfg config.Config, logger *slog.Logger, tokenSvc *mcpauth.Service, blackduckClient *blackduck.Client) (Handler, error) {
 	streamable := mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
 		c, ok := credsFromContext(req.Context())
@@ -51,9 +79,11 @@ func NewHandler(cfg config.Config, logger *slog.Logger, tokenSvc *mcpauth.Servic
 			return nil
 		}
 
+		writeEnabled := accessModeFromContext(req.Context()) == mcpauth.AccessModeReadWrite
+
 		server := mcp.NewServer(&mcp.Implementation{Name: "blackduck-mcp", Version: "0.1.0"}, nil)
 
-		registerBlackduckTools(server, cfg, blackduckClient, c)
+		registerBlackduckTools(server, cfg, tokenSvc, blackduckClient, c, writeEnabled)
 		registerBlackduckPrompts(server)
 
 		return server
@@ -89,7 +119,12 @@ func NewHandler(cfg config.Config, logger *slog.Logger, tokenSvc *mcpauth.Servic
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
+		accessMode := at.AccessMode
+		if accessMode != mcpauth.AccessModeReadWrite {
+			accessMode = mcpauth.AccessModeReadOnly
+		}
 		ctx := withCreds(r.Context(), upstreamCreds{principal: at.Principal, apiToken: at.APIToken})
+		ctx = withAccessMode(ctx, accessMode)
 		streamable.ServeHTTP(w, r.WithContext(ctx))
 	}))
 
@@ -104,6 +139,8 @@ func NewHandler(cfg config.Config, logger *slog.Logger, tokenSvc *mcpauth.Servic
 				return
 			}
 			ctx := withCreds(r.Context(), upstreamCreds{principal: user, apiToken: pass})
+			// Default direct Basic auth to read-only to avoid accidental writes.
+			ctx = withAccessMode(ctx, mcpauth.AccessModeReadOnly)
 			streamable.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
