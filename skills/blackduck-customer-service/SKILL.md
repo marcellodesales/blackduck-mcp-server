@@ -4,7 +4,7 @@ description: "Use when supporting Cybersecurity customer-service workflows with 
 license: "Viasat internal"
 compatibility: "Requires network access to the Viasat Black Duck instance and the centrally hosted viasat-vice MCP server. Write operations (e.g., blackduck_users_update and blackduck_project_delete_*) are only available when the MCP bearer token was authorized with access_mode=read_write; otherwise write tools are not registered."
 metadata:
-  version: "0.2.5"
+  version: "0.2.6"
 allowed-tools:
   - "Read"
   - "Write"
@@ -119,13 +119,21 @@ This is a destructive operation. It is only available with a READ-WRITE token an
 Required input:
 - `project_id` (Black Duck project identifier)
 
+What this does:
+- Deletes the Black Duck **project** and, by implication, its **versions** (and related BOM / code locations under those versions).
+- For Scorecard/CodeDx connector cleanup, this is typically the upstream cleanup step before deleting the CodeDx connector.
+
 Verified tool flow:
-1) (Optional) `blackduck_projects_get` to confirm you have the correct project
+1) (Optional) `blackduck_projects_get { project_id }` to confirm you have the correct project
 2) `blackduck_project_delete_prepare { project_id }`
 3) After explicit operator confirmation, `blackduck_project_delete_commit { approval_token }`
+4) Verify deletion:
+   - `blackduck_projects_get { project_id }` should return 404 `{core.rest.no_data_found}`
+   - If you have a referenced `project_version_id` (e.g. from a CodeDx connector), `blackduck_project_versions_get { project_id, project_version_id }` should also return 404
 
 Notes:
 - This maps to `DELETE /api/projects/{projectId}`. Ensure the Scorecard/CodeDx mapping is correct before committing.
+- If the project still appears immediately after commit, wait ~30–60s and retry the GET once (do not loop).
 
 ## Dormant status
 "Dormant" is NOT the same as `active=false`.
