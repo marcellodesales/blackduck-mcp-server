@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 
 	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/infra/blackduck"
 	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/config"
+	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/mcpauth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -23,6 +25,19 @@ type RawResponseOutput struct {
 	BaseURL  string         `json:"base_url" jsonschema:"Black Duck base URL used by this server."`
 	Response map[string]any `json:"response" jsonschema:"Raw JSON response from Black Duck."`
 }
+
+type PrepareOutput struct {
+	Operation        string         `json:"operation"`
+	ApprovalToken    string         `json:"approval_token"`
+	ExpiresInSeconds int64          `json:"expires_in_seconds"`
+	Preview          map[string]any `json:"preview"`
+}
+
+type CommitInput struct {
+	ApprovalToken string `json:"approval_token" jsonschema:"Approval token returned by the corresponding *_prepare tool."`
+}
+
+const opProjectDelete = "blackduck_project_delete"
 
 type OffsetLimitSortQuery struct {
 	Offset *int32  `json:"offset,omitempty" jsonschema:"Pagination offset."`
@@ -38,7 +53,7 @@ type OffsetLimitSortQFilterQuery struct {
 	Filter *string `json:"filter,omitempty" jsonschema:"Filter expression."`
 }
 
-func registerBlackduckTools(server *mcp.Server, cfg config.Config, client *blackduck.Client, creds upstreamCreds) {
+func registerBlackduckTools(server *mcp.Server, cfg config.Config, tokenSvc *mcpauth.Service, client *blackduck.Client, creds upstreamCreds, writeEnabled bool) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "blackduck_ping",
 		Description: "Sanity-check tool: returns a static response to confirm the MCP server is reachable.",
@@ -74,7 +89,7 @@ func registerBlackduckTools(server *mcp.Server, cfg config.Config, client *black
 		return nil, RawResponseOutput{BaseURL: cfg.BlackduckBaseURL, Response: resp}, nil
 	})
 
-	registerProjectTools(server, cfg, client, creds)
+	registerProjectTools(server, cfg, tokenSvc, client, creds, writeEnabled)
 	registerProjectGroupTools(server, cfg, client, creds)
 	registerBOMTools(server, cfg, client, creds)
 	registerComponentTools(server, cfg, client, creds)
@@ -121,6 +136,21 @@ type ProjectGetInput struct {
 	ProjectID string `json:"project_id" jsonschema:"Black Duck project identifier."`
 }
 
+type ProjectDeletePrepareInput struct {
+	ProjectID string `json:"project_id" jsonschema:"Black Duck project identifier to delete."`
+}
+
+type ProjectDeleteRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+type ProjectDeleteCommitOutput struct {
+	BaseURL   string         `json:"base_url"`
+	Status    string         `json:"status"`
+	ProjectID string         `json:"project_id"`
+	Response  map[string]any `json:"response,omitempty"`
+}
+
 type ProjectVersionsListInput struct {
 	ProjectID string  `json:"project_id" jsonschema:"Black Duck project identifier."`
 	Offset    *int32  `json:"offset,omitempty" jsonschema:"Pagination offset."`
@@ -135,7 +165,7 @@ type ProjectVersionGetInput struct {
 	ProjectVersionID string `json:"project_version_id" jsonschema:"Black Duck project version identifier."`
 }
 
-func registerProjectTools(server *mcp.Server, cfg config.Config, client *blackduck.Client, creds upstreamCreds) {
+func registerProjectTools(server *mcp.Server, cfg config.Config, tokenSvc *mcpauth.Service, client *blackduck.Client, creds upstreamCreds, writeEnabled bool) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "blackduck_projects_list",
 		Description: "List projects (GET /api/projects).",
@@ -216,6 +246,71 @@ func registerProjectTools(server *mcp.Server, cfg config.Config, client *blackdu
 			return nil, RawResponseOutput{}, blackduckToolError(err)
 		}
 		return nil, RawResponseOutput{BaseURL: cfg.BlackduckBaseURL, Response: resp}, nil
+	})
+
+	if !writeEnabled {
+		return
+	}
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "blackduck_project_delete_prepare",
+		Description: "Prepare deleting a Black Duck project (DELETE /api/projects/{projectId}). Returns an approval token that must be redeemed by blackduck_project_delete_commit.",
+	}, func(_ context.Context, _ *mcp.CallToolRequest, in ProjectDeletePrepareInput) (*mcp.CallToolResult, PrepareOutput, error) {
+		if in.ProjectID == "" {
+			return nil, PrepareOutput{}, fmt.Errorf("project_id is required")
+		}
+		req := ProjectDeleteRequest{ProjectID: in.ProjectID}
+		reqBytes, err := json.Marshal(req)
+		if err != nil {
+			return nil, PrepareOutput{}, fmt.Errorf("invalid request: %w", err)
+		}
+		preview := map[string]any{"project_id": in.ProjectID}
+		approvalToken, meta, err := tokenSvc.Mint(string(mcpauth.TokenTypeApproval), cfg.ApprovalTTL, mcpauth.ApprovalData{Operation: opProjectDelete, Request: reqBytes})
+		if err != nil {
+			return nil, PrepareOutput{}, err
+		}
+		expiresIn := int64(time.Until(meta.ExpiresAt).Seconds())
+		if expiresIn < 0 {
+			expiresIn = 0
+		}
+		return nil, PrepareOutput{Operation: opProjectDelete, ApprovalToken: approvalToken, ExpiresInSeconds: expiresIn, Preview: preview}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "blackduck_project_delete_commit",
+		Description: "Commit a prepared blackduck_project_delete operation using an approval token (DELETE /api/projects/{projectId}).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in CommitInput) (*mcp.CallToolResult, ProjectDeleteCommitOutput, error) {
+		if err := requireWriteAccess(ctx); err != nil {
+			return nil, ProjectDeleteCommitOutput{}, err
+		}
+		var data mcpauth.ApprovalData
+		if _, err := tokenSvc.Parse(string(mcpauth.TokenTypeApproval), in.ApprovalToken, &data); err != nil {
+			return nil, ProjectDeleteCommitOutput{}, err
+		}
+		if data.Operation != opProjectDelete {
+			return nil, ProjectDeleteCommitOutput{}, fmt.Errorf("approval token operation mismatch: got %q want %q", data.Operation, opProjectDelete)
+		}
+		var req ProjectDeleteRequest
+		if err := json.Unmarshal(data.Request, &req); err != nil {
+			return nil, ProjectDeleteCommitOutput{}, fmt.Errorf("invalid request: %w", err)
+		}
+		if req.ProjectID == "" {
+			return nil, ProjectDeleteCommitOutput{}, fmt.Errorf("project_id is required")
+		}
+
+		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel()
+
+		path := "/api/projects/" + url.PathEscape(req.ProjectID)
+		resp, err := client.DeleteJSON(ctx, creds.apiToken, path, "", nil)
+		if err != nil {
+			return nil, ProjectDeleteCommitOutput{}, blackduckToolError(err)
+		}
+		out := ProjectDeleteCommitOutput{BaseURL: cfg.BlackduckBaseURL, Status: "ok", ProjectID: req.ProjectID}
+		if len(resp) > 0 {
+			out.Response = resp
+		}
+		return nil, out, nil
 	})
 }
 

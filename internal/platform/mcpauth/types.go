@@ -4,6 +4,8 @@ import "encoding/json"
 
 type TokenType string
 
+type AccessMode string
+
 const (
 	TokenTypeClientID     TokenType = "client_id"
 	TokenTypeAuthState    TokenType = "auth_state"
@@ -11,6 +13,9 @@ const (
 	TokenTypeAccessToken  TokenType = "access_token"
 	TokenTypeApproval     TokenType = "approval"
 	TokenTypeSessionState TokenType = "session_state"
+
+	AccessModeReadOnly  AccessMode = "read_only"
+	AccessModeReadWrite AccessMode = "read_write"
 )
 
 // ClientRegistrationData is encrypted into the OAuth client_id.
@@ -41,8 +46,11 @@ type AuthState struct {
 // AuthCodeData is encrypted into the OAuth authorization code.
 // It contains upstream API token data so it can be exchanged for an access token.
 type AuthCodeData struct {
-	Principal            string   `json:"principal"`
-	APIToken             string   `json:"api_token"`
+	Principal string `json:"principal"`
+	APIToken  string `json:"api_token"`
+
+	AccessMode AccessMode `json:"access_mode,omitempty"`
+
 	RedirectURI          string   `json:"redirect_uri"`
 	CodeChallenge        string   `json:"code_challenge"`
 	CodeChallengeMethod  string   `json:"code_challenge_method"`
@@ -54,9 +62,12 @@ type AuthCodeData struct {
 
 // AccessTokenData is encrypted into the OAuth bearer access token.
 type AccessTokenData struct {
-	Principal            string `json:"principal"`
-	APIToken             string `json:"api_token"`
-	CreatedAtUnixSeconds int64  `json:"created_at"`
+	Principal string `json:"principal"`
+	APIToken  string `json:"api_token"`
+
+	AccessMode AccessMode `json:"access_mode,omitempty"`
+
+	CreatedAtUnixSeconds int64 `json:"created_at"`
 }
 
 // ApprovalData is encrypted into a short-lived token returned by "prepare" tools.

@@ -201,6 +201,29 @@ func (c *Client) PutJSON(ctx context.Context, apiToken, path, accept, contentTyp
 	return nil, err
 }
 
+func (c *Client) DeleteJSON(ctx context.Context, apiToken, path, accept string, query url.Values) (map[string]any, error) {
+	bearer, _, err := c.authenticate(ctx, apiToken, false)
+	if err != nil {
+		return nil, err
+	}
+
+	out, err := c.deleteJSONWithBearer(ctx, bearer, path, accept, query)
+	if err == nil {
+		return out, nil
+	}
+
+	// If the cached bearer token expired (or was revoked), refresh once and retry.
+	if errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrForbidden) {
+		bearer, _, authErr := c.authenticate(ctx, apiToken, true)
+		if authErr != nil {
+			return nil, authErr
+		}
+		return c.deleteJSONWithBearer(ctx, bearer, path, accept, query)
+	}
+
+	return nil, err
+}
+
 func (c *Client) getJSONWithBearer(ctx context.Context, bearer, path, accept string, query url.Values) (map[string]any, error) {
 	endpoint := c.baseURL.JoinPath(strings.TrimPrefix(path, "/"))
 	u := endpoint
@@ -260,6 +283,74 @@ func (c *Client) getJSONWithBearer(ctx context.Context, bearer, path, accept str
 
 	var out map[string]any
 	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return out, nil
+}
+
+func (c *Client) deleteJSONWithBearer(ctx context.Context, bearer, path, accept string, query url.Values) (map[string]any, error) {
+	endpoint := c.baseURL.JoinPath(strings.TrimPrefix(path, "/"))
+	u := endpoint
+	if len(query) > 0 {
+		u.RawQuery = query.Encode()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	req.Header.Set("Authorization", "Bearer "+bearer)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// fallthrough
+	case http.StatusAccepted:
+		// fallthrough
+	case http.StatusNoContent:
+		// ok
+	default:
+		switch resp.StatusCode {
+		case http.StatusUnauthorized:
+			return nil, ErrUnauthorized
+		case http.StatusForbidden:
+			return nil, ErrForbidden
+		}
+		msg := strings.TrimSpace(string(respBody))
+		if len(msg) > 500 {
+			msg = msg[:500]
+		}
+		return nil, fmt.Errorf("blackduck api error: status=%d body=%q", resp.StatusCode, msg)
+	}
+
+	// Many DELETE endpoints return 204 or an empty body; treat that as success.
+	if len(respBody) == 0 {
+		return map[string]any{}, nil
+	}
+
+	ct := strings.ToLower(strings.TrimSpace(strings.SplitN(resp.Header.Get("Content-Type"), ";", 2)[0]))
+	if ct != "" && !strings.Contains(ct, "json") {
+		return map[string]any{
+			"content_type": ct,
+			"body":         string(respBody),
+		}, nil
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal(respBody, &out); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 	return out, nil

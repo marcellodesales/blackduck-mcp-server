@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -238,7 +239,7 @@ var loginTemplate = template.Must(template.New("login").Parse(`<!doctype html>
     h1 { margin:0 0 8px 0; font-size:20px; }
     p { margin:0 0 16px 0; color:#555; font-size:14px; line-height:1.4; }
     label { display:block; font-weight:600; font-size:13px; margin:12px 0 6px; }
-    input { width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px; }
+    input, select { width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px; }
     button { width:100%; margin-top:16px; padding:10px 12px; border:0; border-radius:8px; background:#006978; color:#fff; font-weight:700; font-size:14px; cursor:pointer; }
     .err { background:#fdecea; border:1px solid #f5c6cb; color:#7a1c1c; padding:10px 12px; border-radius:8px; margin-bottom:12px; font-size:13px; }
     .success { background:#e7f7ed; border:1px solid #b7ebc6; color:#0f5132; padding:10px 12px; border-radius:8px; margin-bottom:12px; font-size:13px; }
@@ -268,6 +269,12 @@ var loginTemplate = template.Must(template.New("login").Parse(`<!doctype html>
       {{if .Success}}<div class="success">{{.Success}}</div>{{end}}
 
       <form method="POST" action="/blackduck/login">
+        <label for="access_mode">Operation level</label>
+        <select id="access_mode" name="access_mode">
+          <option value="read_only" {{if eq .AccessMode "read_only"}}selected{{end}}>READ-ONLY (safe, non-mutating operations)</option>
+          <option value="read_write" {{if eq .AccessMode "read_write"}}selected{{end}}>READ-WRITE (includes deletion)</option>
+        </select>
+
         <label for="api_token">API Token</label>
         <input id="api_token" name="api_token" type="password" autocomplete="current-password" required />
         <input type="hidden" name="auth_state" value="{{.AuthState}}" />
@@ -283,9 +290,11 @@ var loginTemplate = template.Must(template.New("login").Parse(`<!doctype html>
 </html>`))
 
 type loginPageData struct {
-	AuthState   string
-	Error       string
-	Success     string
+	AuthState  string
+	AccessMode string
+	Error      string
+	Success    string
+
 	RedirectURL string
 }
 
@@ -306,10 +315,16 @@ func (r *Router) renderBlackduckLogin(w http.ResponseWriter, req *http.Request) 
 		http.Error(w, "missing auth_state", http.StatusBadRequest)
 		return
 	}
+	rawAccessMode := strings.TrimSpace(req.URL.Query().Get("access_mode"))
+	am, err := parseAccessMode(rawAccessMode)
+	if err != nil {
+		am = mcpauth.AccessModeReadOnly
+	}
 	data := loginPageData{
-		AuthState: authState,
-		Error:     req.URL.Query().Get("error"),
-		Success:   req.URL.Query().Get("success"),
+		AuthState:  authState,
+		AccessMode: string(am),
+		Error:      req.URL.Query().Get("error"),
+		Success:    req.URL.Query().Get("success"),
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -326,6 +341,15 @@ func (r *Router) handleBlackduckLoginSubmit(w http.ResponseWriter, req *http.Req
 
 	if apiToken == "" || encState == "" {
 		http.Error(w, "missing required fields", http.StatusBadRequest)
+		return
+	}
+
+	accessMode, err := parseAccessMode(strings.TrimSpace(req.FormValue("access_mode")))
+	if err != nil {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = loginTemplate.Execute(w, loginPageData{AuthState: encState, AccessMode: string(mcpauth.AccessModeReadOnly), Error: err.Error()})
 		return
 	}
 
@@ -354,7 +378,7 @@ func (r *Router) handleBlackduckLoginSubmit(w http.ResponseWriter, req *http.Req
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
-		_ = loginTemplate.Execute(w, loginPageData{AuthState: encState, Error: msg})
+		_ = loginTemplate.Execute(w, loginPageData{AuthState: encState, AccessMode: string(accessMode), Error: msg})
 		return
 	}
 
@@ -364,8 +388,10 @@ func (r *Router) handleBlackduckLoginSubmit(w http.ResponseWriter, req *http.Req
 	}
 
 	codeData := mcpauth.AuthCodeData{
-		Principal:            principal,
-		APIToken:             apiToken,
+		Principal:  principal,
+		APIToken:   apiToken,
+		AccessMode: accessMode,
+
 		RedirectURI:          st.RedirectURI,
 		CodeChallenge:        st.CodeChallenge,
 		CodeChallengeMethod:  st.CodeChallengeMethod,
@@ -459,8 +485,10 @@ func (r *Router) token(w http.ResponseWriter, req *http.Request) {
 	}
 
 	at := mcpauth.AccessTokenData{
-		Principal:            cd.Principal,
-		APIToken:             cd.APIToken,
+		Principal:  cd.Principal,
+		APIToken:   cd.APIToken,
+		AccessMode: cd.AccessMode,
+
 		CreatedAtUnixSeconds: time.Now().UTC().Unix(),
 	}
 	accessToken, meta, err := r.tokenSvc.Mint(string(mcpauth.TokenTypeAccessToken), r.cfg.AccessTokenTTL, at)
@@ -476,6 +504,17 @@ func (r *Router) token(w http.ResponseWriter, req *http.Request) {
 		ExpiresIn:   int64(meta.ExpiresAt.Sub(time.Now().UTC()).Seconds()),
 		Scope:       strings.Join(cd.Scopes, " "),
 	})
+}
+
+func parseAccessMode(raw string) (mcpauth.AccessMode, error) {
+	switch strings.TrimSpace(raw) {
+	case "", string(mcpauth.AccessModeReadOnly):
+		return mcpauth.AccessModeReadOnly, nil
+	case string(mcpauth.AccessModeReadWrite):
+		return mcpauth.AccessModeReadWrite, nil
+	default:
+		return "", fmt.Errorf("invalid access_mode %q (expected read_only or read_write)", raw)
+	}
 }
 
 func contains(list []string, v string) bool {
