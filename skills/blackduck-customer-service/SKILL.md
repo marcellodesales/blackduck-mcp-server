@@ -2,7 +2,7 @@
 name: blackduck-customer-service
 description: "Use when supporting Cybersecurity customer-service workflows with Black Duck via the blackduck-viasat MCP server. For user re-activation, require a Viasat email (@viasat.com) or LDAP username, confirm the identity via the viasat-vice MCP server, look up the account starting from /api/dormant-users (then fall back to /api/users if needed), and if active=false update the user via HTTP PUT to set active=true using blackduck_users_update. For offboarding cleanup, if a user is dormant for >1 year and is NOT found in the VICE directory, suggest deactivation (active=false); after the operator confirms via a manual Slack search, deactivate the Black Duck user via blackduck_users_update. Triggers on: Black Duck, blackduck, dormant users, activate user, reactivate user, enable user, deactivate user, disable user, delete user, remove user, offboarding, user groups, project groups."
 license: "Viasat internal"
-compatibility: "Requires network access to the Viasat Black Duck instance and the centrally hosted viasat-vice MCP server. Reactivation and deactivation require a Black Duck API token with write access and the blackduck_users_update tool (PUT /api/users/{userId})."
+compatibility: "Requires network access to the Viasat Black Duck instance and the centrally hosted viasat-vice MCP server. Write operations (e.g., blackduck_users_update and blackduck_project_delete_*) are only available when the MCP bearer token was authorized with access_mode=read_write; otherwise write tools are not registered."
 metadata:
   version: "0.2.5"
 allowed-tools:
@@ -112,6 +112,20 @@ Expected tool flow:
 1) Resolve the user to a `user_id` using the flow above
 2) `blackduck_user_usergroups_list` with that `user_id`
 3) Return the group `name` values
+
+## Project cleanup — deleting a Black Duck project (prepare/commit)
+This is a destructive operation. It is only available with a READ-WRITE token and uses a prepare/commit safety gate.
+
+Required input:
+- `project_id` (Black Duck project identifier)
+
+Verified tool flow:
+1) (Optional) `blackduck_projects_get` to confirm you have the correct project
+2) `blackduck_project_delete_prepare { project_id }`
+3) After explicit operator confirmation, `blackduck_project_delete_commit { approval_token }`
+
+Notes:
+- This maps to `DELETE /api/projects/{projectId}`. Ensure the Scorecard/CodeDx mapping is correct before committing.
 
 ## Dormant status
 "Dormant" is NOT the same as `active=false`.
