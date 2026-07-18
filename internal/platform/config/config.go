@@ -61,10 +61,14 @@ func Load() (Config, error) {
 		BlackduckCACertBase64:          strings.TrimSpace(os.Getenv("BLACKDUCK_CA_CERT_BASE64")),
 		BlackduckTLSInsecureSkipVerify: false,
 		AuthSecret:                     strings.TrimSpace(os.Getenv("MCP_AUTH_SECRET")),
-		AuthCodeTTL:                    5 * time.Minute,
-		AccessTokenTTL:                 12 * time.Hour,
-		ApprovalTTL:                    5 * time.Minute,
-		JSONResponse:                   false,
+		// Token lifetimes are env-overridable so deployments can tune them without a
+		// rebuild, matching the prismacloud, kubernetes, and vault MCP servers. The
+		// access-token default is 10h (the standard across our MCP servers);
+		// compose/.env set it explicitly via MCP_AUTH_ACCESS_TTL.
+		AuthCodeTTL:    durationEnv("MCP_AUTH_CODE_TTL", 5*time.Minute),
+		AccessTokenTTL: durationEnv("MCP_AUTH_ACCESS_TTL", 10*time.Hour),
+		ApprovalTTL:    durationEnv("MCP_APPROVAL_TTL", 5*time.Minute),
+		JSONResponse:   false,
 	}
 
 	if v := strings.TrimSpace(os.Getenv("BLACKDUCK_TLS_INSECURE_SKIP_VERIFY")); v != "" {
@@ -125,6 +129,19 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// durationEnv reads a Go duration (e.g. "10h", "5m") from the environment,
+// falling back to the provided default when the variable is unset or invalid.
+// Mirrors the helper used by the prismacloud, kubernetes, and vault MCP servers
+// so token-TTL configuration is consistent across all of our MCP servers.
+func durationEnv(key string, fallback time.Duration) time.Duration {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return fallback
 }
 
 func (c Config) EffectiveBlackduckCACertFile() string {

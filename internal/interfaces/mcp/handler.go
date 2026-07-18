@@ -1,10 +1,13 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -70,6 +73,40 @@ func requireWriteAccess(ctx context.Context) error {
 		return fmt.Errorf("write operations are disabled for this access token; re-authorize with READ-WRITE")
 	}
 	return nil
+}
+
+// publicMCPMethods are JSON-RPC methods a client may call WITHOUT authentication
+// so registries, catalogs, and agents can DISCOVER the toolset. Tool execution
+// (tools/call) and everything else still require a valid bearer / Basic credential.
+var publicMCPMethods = map[string]bool{
+	"initialize":                true,
+	"notifications/initialized": true,
+	"tools/list":                true,
+	"prompts/list":              true,
+	"resources/list":            true,
+	"resources/templates/list":  true,
+	"ping":                      true,
+}
+
+// isPublicMCPRequest reports whether the POST body is a JSON-RPC discovery method
+// that may proceed unauthenticated. It reads and RESTORES the body so the
+// downstream MCP handler still sees it.
+func isPublicMCPRequest(req *http.Request) bool {
+	if req.Method != http.MethodPost || req.Body == nil {
+		return false
+	}
+	body, err := io.ReadAll(io.LimitReader(req.Body, 1<<20))
+	if err != nil {
+		return false
+	}
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	var rpc struct {
+		Method string `json:"method"`
+	}
+	if err := json.Unmarshal(body, &rpc); err != nil {
+		return false
+	}
+	return publicMCPMethods[rpc.Method]
 }
 
 func NewHandler(cfg config.Config, logger *slog.Logger, tokenSvc *mcpauth.Service, blackduckClient *blackduck.Client) (Handler, error) {
@@ -144,6 +181,20 @@ func NewHandler(cfg config.Config, logger *slog.Logger, tokenSvc *mcpauth.Servic
 			streamable.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
+
+		// Discovery methods (initialize, tools/list, …) sent WITHOUT credentials
+		// proceed unauthenticated so registries, catalogs, and agents can enumerate
+		// the toolset per the MCP protocol. Tool execution (tools/call) and every
+		// other method still fall through to bearerOnly and require a valid token.
+		// A default (empty-credential) read-only context is injected so the server
+		// factory can register the tool schemas for tools/list.
+		if strings.TrimSpace(authz) == "" && isPublicMCPRequest(r) {
+			ctx := withCreds(r.Context(), upstreamCreds{})
+			ctx = withAccessMode(ctx, mcpauth.AccessModeReadOnly)
+			streamable.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+
 		bearerOnly.ServeHTTP(w, r)
 	}), nil
 }
