@@ -110,3 +110,6 @@ services:
 
       LOG_LEVEL: ${LOG_LEVEL:-info}
       MCP_AUTH_SECRET: ${MCP_AUTH_SECRET:-}
+
+      # Access token lifetime (default 10h).
+      MCP_AUTH_ACCESS_TTL: ${MCP_AUTH_ACCESS_TTL:-10h}
