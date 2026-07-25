@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/infra/blackduck"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/mcpauth"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/infra/blackduck"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/mcpauth"
 )
 
 type authServerMetadata struct {
@@ -61,7 +61,7 @@ func (r *Router) serverCard(w http.ResponseWriter, req *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"name":        "com.viasat.blackduck-mcp",
+		"name":        "io.github.marcellodesales/blackduck-mcp-server",
 		"title":       "Black Duck MCP Server",
 		"version":     "0.1.0",
 		"description": "Query Black Duck projects, BOMs, components, vulnerabilities, scans, users, and policy rules via MCP tools.",
@@ -372,7 +372,7 @@ func (r *Router) handleBlackduckLoginSubmit(w http.ResponseWriter, req *http.Req
 				errText = errText[:240] + "…"
 			}
 			if strings.Contains(errText, "x509:") || strings.Contains(errText, "certificate verify failed") {
-				msg = "upstream TLS verification failed (certificate not trusted). Configure VIASAT_IO_CACERT_* or BLACKDUCK_CA_CERT_* (or set BLACKDUCK_TLS_INSECURE_SKIP_VERIFY=true). " + errText
+				msg = "upstream TLS verification failed (certificate not trusted). Configure PRIVATE_CACERT_* or BLACKDUCK_CA_CERT_* (or set BLACKDUCK_TLS_INSECURE_SKIP_VERIFY=true). " + errText
 			}
 		}
 		w.Header().Set("Cache-Control", "no-store")

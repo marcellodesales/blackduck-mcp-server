@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/config"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/mcpauth"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/securetoken"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/viasatca"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/config"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/mcpauth"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/privateca"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/securetoken"
 )
 
 func ProvideSealer(cfg config.Config) (*securetoken.Sealer, error) {
@@ -25,8 +25,8 @@ func ProvideAuthService(sealer *securetoken.Sealer) *mcpauth.Service {
 	return mcpauth.NewService(sealer, nil)
 }
 
-func ProvideViasatCABootstrapper(cfg config.Config, logger *slog.Logger) *viasatca.Bootstrapper {
-	return viasatca.NewBootstrapper(cfg, logger)
+func ProvidePrivateCABootstrapper(cfg config.Config, logger *slog.Logger) *privateca.Bootstrapper {
+	return privateca.NewBootstrapper(cfg, logger)
 }
 
 func ProvideHTTPClient(cfg config.Config) (*http.Client, error) {

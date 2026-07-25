@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/config"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/config"
 )
 
 func NewServer(cfg config.Config, handler http.Handler) *http.Server {

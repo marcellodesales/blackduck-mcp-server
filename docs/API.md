@@ -9,15 +9,15 @@ This document closes the loop between:
 
 ### Base URL
 The upstream Black Duck API base URL is configured via:
-- `BLACKDUCK_BASE_URL` (default: `https://blackduck.infosec.viasat.io`)
+- `BLACKDUCK_BASE_URL` (default: `https://blackduck.example.com`)
 
 Docs landing page:
-- `https://blackduck.infosec.viasat.io/api-doc/public.html`
+- `https://blackduck.example.com/api-doc/public.html`
 
 TLS notes:
-- The upstream Black Duck endpoint uses HTTPS and may be signed by the Viasat private PKI.
+- The upstream Black Duck endpoint uses HTTPS and may be signed by a private PKI.
 - For Dockerized local development, configure CA roots using:
-  - `VIASAT_IO_CACERT_FILE` + `VIASAT_IO_CACERT_URL` (bootstrap bundle at startup)
+  - `PRIVATE_CACERT_FILE` + `PRIVATE_CACERT_URL` (bootstrap bundle at startup)
   - `BLACKDUCK_CA_CERT_FILE` / `BLACKDUCK_CA_CERT_BASE64` (additional roots)
   - `BLACKDUCK_TLS_INSECURE_SKIP_VERIFY=true` (last resort)
 

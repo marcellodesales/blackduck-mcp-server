@@ -12,9 +12,9 @@ import (
 	"net/http"
 	"strings"
 
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/infra/blackduck"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/config"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/mcpauth"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/infra/blackduck"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/config"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/mcpauth"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )

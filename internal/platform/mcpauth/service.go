@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/securetoken"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/securetoken"
 )
 
 var (

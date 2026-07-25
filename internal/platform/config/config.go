@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/securetoken"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/securetoken"
 )
 
 type Config struct {
@@ -23,13 +23,13 @@ type Config struct {
 	// Base URL for Black Duck.
 	BlackduckBaseURL string
 
-	// Shared Viasat CA bundle bootstrap settings (optional). When configured, the
+	// Shared private CA bundle bootstrap settings (optional). When configured, the
 	// server can fetch the bundle during startup and store it at runtime.
-	ViasatIOCACertFile string
-	ViasatIOCACertURL  string
+	PrivateCACertFile string
+	PrivateCACertURL  string
 
 	// Optional extra PEM-encoded CA certificate sources used when connecting to
-	// Black Duck. Useful for Dockerized local development against the Viasat
+	// Black Duck. Useful for Dockerized local development against a
 	// private PKI.
 	BlackduckCACertFile   string
 	BlackduckCACertBase64 string
@@ -54,9 +54,9 @@ func Load() (Config, error) {
 	cfg := Config{
 		Port:                           9090,
 		ServerURL:                      "",
-		BlackduckBaseURL:               "https://blackduck.infosec.viasat.io",
-		ViasatIOCACertFile:             strings.TrimSpace(os.Getenv("VIASAT_IO_CACERT_FILE")),
-		ViasatIOCACertURL:              strings.TrimSpace(os.Getenv("VIASAT_IO_CACERT_URL")),
+		BlackduckBaseURL:               "https://blackduck.example.com",
+		PrivateCACertFile:              strings.TrimSpace(os.Getenv("PRIVATE_CACERT_FILE")),
+		PrivateCACertURL:               strings.TrimSpace(os.Getenv("PRIVATE_CACERT_URL")),
 		BlackduckCACertFile:            strings.TrimSpace(os.Getenv("BLACKDUCK_CA_CERT_FILE")),
 		BlackduckCACertBase64:          strings.TrimSpace(os.Getenv("BLACKDUCK_CA_CERT_BASE64")),
 		BlackduckTLSInsecureSkipVerify: false,
@@ -148,9 +148,9 @@ func (c Config) EffectiveBlackduckCACertFile() string {
 	if c.BlackduckCACertFile != "" {
 		return c.BlackduckCACertFile
 	}
-	return c.ViasatIOCACertFile
+	return c.PrivateCACertFile
 }
 
-func (c Config) IsViasatCACertBootstrapEnabled() bool {
-	return c.ViasatIOCACertFile != "" && c.ViasatIOCACertURL != ""
+func (c Config) IsPrivateCACertBootstrapEnabled() bool {
+	return c.PrivateCACertFile != "" && c.PrivateCACertURL != ""
 }

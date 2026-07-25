@@ -39,11 +39,11 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates
 
 # Run as non-root.
-RUN mkdir -p /viasat/certs && addgroup -g 10001 app && adduser -D -u 10001 -G app app
+RUN mkdir -p /certs && addgroup -g 10001 app && adduser -D -u 10001 -G app app
 
 ARG BINARY_NAME
 COPY --from=builder /out/${BINARY_NAME} /app/server
-RUN chown -R app:app /app /viasat
+RUN chown -R app:app /app /certs
 
 USER app
 

@@ -50,11 +50,11 @@ OAuth is recommended for real MCP clients.
 Environment variables:
 - `PORT` (default `9090`)
 - `MCP_SERVER_URL` (default `http://localhost:$PORT`)
-- `BLACKDUCK_BASE_URL` (default `https://blackduck.infosec.viasat.io`)
+- `BLACKDUCK_BASE_URL` (default `https://blackduck.example.com`)
 
-Upstream TLS / CA handling (often required for internal Viasat HTTPS services):
-- `VIASAT_IO_CACERT_FILE` + `VIASAT_IO_CACERT_URL`
-  - when both set, the server fetches the Viasat CA bundle at startup and writes it to the file
+Upstream TLS / CA handling (often required for internal HTTPS services):
+- `PRIVATE_CACERT_FILE` + `PRIVATE_CACERT_URL`
+  - when both set, the server fetches the private CA bundle at startup and writes it to the file
 - `BLACKDUCK_CA_CERT_FILE` (optional override)
 - `BLACKDUCK_CA_CERT_BASE64` (optional additional PEM bundle)
 - `BLACKDUCK_TLS_INSECURE_SKIP_VERIFY` (optional/unsafe): when true, disables upstream TLS verification

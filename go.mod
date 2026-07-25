@@ -1,4 +1,4 @@
-module git.viasat.com/seceng-devsecops-platform/blackduck-mcp
+module github.com/marcellodesales/blackduck-mcp-server
 
 go 1.24.0
 

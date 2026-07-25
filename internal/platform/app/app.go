@@ -8,14 +8,14 @@ import (
 	"net/http"
 	"time"
 
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/viasatca"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/privateca"
 )
 
 type App struct {
-	Logger               *slog.Logger
-	HTTPServer           *http.Server
-	ShutdownTimeout      time.Duration
-	ViasatCABootstrapper *viasatca.Bootstrapper
+	Logger                *slog.Logger
+	HTTPServer            *http.Server
+	ShutdownTimeout       time.Duration
+	PrivateCABootstrapper *privateca.Bootstrapper
 }
 
 func (a *App) Run(ctx context.Context) error {
@@ -57,24 +57,24 @@ func (a *App) handlePrerequirements(ctx context.Context) error {
 	return nil
 }
 
-// ensurePrivateCARoot reuses the Viasat private CA bundle already present on
-// disk and only fetches it from ViasatIOCACertURL when it is missing. This
+// ensurePrivateCARoot reuses the private CA bundle already present on
+// disk and only fetches it from PrivateCACertURL when it is missing. This
 // keeps container restarts cheap and avoids hard-coupling startup to network
-// reachability of `cacerts.viasat.io` when the bundle has already been
-// primed (e.g. via the `./data/certs:/viasat/certs` docker-compose volume).
+// reachability of `the private CA endpoint` when the bundle has already been
+// primed (e.g. via the `./data/certs:/certs` docker-compose volume).
 func (a *App) ensurePrivateCARoot(ctx context.Context) error {
-	if a.ViasatCABootstrapper == nil {
+	if a.PrivateCABootstrapper == nil {
 		return nil
 	}
 
-	status, err := a.ViasatCABootstrapper.EnsurePrivateCARoot(ctx)
+	status, err := a.PrivateCABootstrapper.EnsurePrivateCARoot(ctx)
 	if err != nil {
 		return fmt.Errorf("ensure private ca root: %w", err)
 	}
 	if a.Logger != nil && status.Enabled && status.Exists {
 		a.Logger.Info(
 			"private ca root ready",
-			"path", status.ViasatIOCACertFile,
+			"path", status.PrivateCACertFile,
 			"size_bytes", status.SizeBytes,
 			"updated_at", status.UpdatedAt,
 			"refetched", status.LastFetchedAt != "",

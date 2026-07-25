@@ -7,14 +7,14 @@
 package main
 
 import (
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/infra/blackduck"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/interfaces/httpserver"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/interfaces/mcp"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/app"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/config"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/logging"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/viasatca"
-	"git.viasat.com/seceng-devsecops-platform/blackduck-mcp/internal/platform/wiring"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/infra/blackduck"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/interfaces/httpserver"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/interfaces/mcp"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/app"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/config"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/logging"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/privateca"
+	"github.com/marcellodesales/blackduck-mcp-server/internal/platform/wiring"
 	"log/slog"
 	"net/http"
 	"time"
@@ -51,18 +51,18 @@ func InitializeApp() (*app.App, error) {
 	router := httpserver.NewRouter(configConfig, logger, handler, service, blackduckClient)
 	httpHandler := httpserver.ProvideHandler(router)
 	server := httpserver.NewServer(configConfig, httpHandler)
-	bootstrapper := wiring.ProvideViasatCABootstrapper(configConfig, logger)
+	bootstrapper := wiring.ProvidePrivateCABootstrapper(configConfig, logger)
 	appApp := newApp(logger, server, bootstrapper)
 	return appApp, nil
 }
 
 // wire.go:
 
-func newApp(logger *slog.Logger, srv *http.Server, viasatCABootstrapper *viasatca.Bootstrapper) *app.App {
+func newApp(logger *slog.Logger, srv *http.Server, privateCABootstrapper *privateca.Bootstrapper) *app.App {
 	return &app.App{
-		Logger:               logger,
-		HTTPServer:           srv,
-		ShutdownTimeout:      10 * time.Second,
-		ViasatCABootstrapper: viasatCABootstrapper,
+		Logger:                logger,
+		HTTPServer:            srv,
+		ShutdownTimeout:       10 * time.Second,
+		PrivateCABootstrapper: privateCABootstrapper,
 	}
 }

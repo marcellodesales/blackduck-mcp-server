@@ -71,7 +71,7 @@
 #      `/authorize` → `/blackduck/login`.
 services:
   blackduck-mcp:
-    image: vionix.docker.artifactory.viasat.com/agentic/customer-service/tools/blackduck-mcp-server
+    image: marcellodesales/blackduck-mcp-server
     build:
       context: .
       target: blackduck-mcp
@@ -85,21 +85,21 @@ services:
       - "9290:9090"
     restart: unless-stopped
     volumes:
-      # Persist the Viasat private CA bundle on the host so that container
-      # restarts do not require connectivity to cacerts.viasat.io. The server
+      # Persist the private CA bundle on the host so that container
+      # restarts do not require connectivity to the private CA endpoint. The server
       # uses `EnsurePrivateCARoot` at startup which reuses this file when
       # present and only fetches when it is missing.
-      - ./data/certs:/viasat/certs
+      - ./data/certs:/certs
     environment:
       PORT: "9090"
       MCP_SERVER_URL: "http://localhost:9290"
       MCP_JSON_RESPONSE: "${MCP_JSON_RESPONSE:-false}"
-      BLACKDUCK_BASE_URL: ${BLACKDUCK_BASE_URL:-https://blackduck.infosec.viasat.io}
+      BLACKDUCK_BASE_URL: ${BLACKDUCK_BASE_URL:-https://blackduck.example.com}
 
-      # Optional: bootstrap + trust the Viasat private CA bundle inside the container.
-      # This is typically required for internal HTTPS services like blackduck.infosec.viasat.io.
-      VIASAT_IO_CACERT_FILE: ${VIASAT_IO_CACERT_FILE:-/viasat/certs/viasat.io.pem}
-      VIASAT_IO_CACERT_URL: ${VIASAT_IO_CACERT_URL:-https://cacerts.viasat.io/all-certs.crt}
+      # Optional: bootstrap + trust the private CA bundle inside the container.
+      # This is typically required for internal HTTPS services like blackduck.example.com.
+      PRIVATE_CACERT_FILE: ${PRIVATE_CACERT_FILE:-/certs/private-ca.pem}
+      PRIVATE_CACERT_URL: ${PRIVATE_CACERT_URL:-https://pki.example.com/all-certs.crt}
 
       # Optional: override or add extra CA roots specifically for Black Duck.
       BLACKDUCK_CA_CERT_FILE: ${BLACKDUCK_CA_CERT_FILE:-}
